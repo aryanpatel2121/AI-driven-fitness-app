@@ -1,29 +1,29 @@
 # FastAPI and Web Framework
-fastapi==0.104.1
-uvicorn==0.24.0
-python-multipart==0.0.6
+fastapi
+uvicorn
+python-multipart
 
 # Database
-sqlalchemy==2.0.23
+sqlalchemy
 
 # Authentication & Security
-python-jose==3.3.0
-passlib==1.7.4
-argon2-cffi==23.1.0
-python-dotenv==1.0.0
+python-jose
+passlib
+argon2-cffi
+python-dotenv
 
 # Data Validation
-pydantic==2.5.0
-pydantic-settings==2.1.0
-email-validator==2.1.0
+pydantic
+pydantic-settings
+email-validator
 
 # Analytics & Data Processing
-pandas==2.1.3
-numpy==1.26.4
+pandas
+numpy
 
 # Machine Learning
-scikit-learn==1.3.2
-joblib==1.3.2
+scikit-learn
+joblib
 
 # HTTP Client
-httpx==0.25.2
+httpx
