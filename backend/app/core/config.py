@@ -15,7 +15,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    BACKEND_CORS_ORIGINS: List[str] = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://ai-driven-fitness-app.netlify.app"
+]
+
     
     # ML Models
     MODEL_PATH: str = "./app/ml/models/"
