@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import List
+from pydantic import validator
 
 class Settings(BaseSettings):
     # API Settings
@@ -16,12 +17,21 @@ class Settings(BaseSettings):
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://ai-driven-fitness-app.netlify.app"
-]
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://ai-driven-fitness-app.netlify.app",
+    ]
 
-    
+    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    def split_cors(cls, v):
+        """
+        Allows Render/Env variables like:
+        BACKEND_CORS_ORIGINS="https://a.com,https://b.com"
+        """
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
     # ML Models
     MODEL_PATH: str = "./app/ml/models/"
     
