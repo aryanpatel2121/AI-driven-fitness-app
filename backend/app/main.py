@@ -1,25 +1,27 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.core.config import settings
 from app.api.routes import auth, nutrition, workouts, analytics, ml_predictions as ml, prediction
 
-# ⭐ ADD THESE IMPORTS
+# Import SQLAlchemy models + engine
 from app.db.base import Base
-from app.db.session import engine
+from app.db.database import engine
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
 )
 
-# ⭐ CREATE TABLES ON STARTUP (CRITICAL FIX)
-@app.on_event("startup")
-def on_startup():
-    print("Creating database tables if not exist...")
-    Base.metadata.create_all(bind=engine)
+
+# -------------- CREATE ALL TABLES (IMPORTANT) -------------------
+# This fixes: sqlite3.OperationalError: no such table: users
+Base.metadata.create_all(bind=engine)
+# ---------------------------------------------------------------
 
 
-# CORS
+# ---- CORS ----
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
@@ -29,7 +31,8 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Routers
+
+# ---- Routes ----
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
 app.include_router(nutrition.router, prefix=f"{settings.API_V1_PREFIX}/nutrition", tags=["nutrition"])
 app.include_router(workouts.router, prefix=f"{settings.API_V1_PREFIX}/workouts", tags=["workouts"])
@@ -45,6 +48,7 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs"
     }
+
 
 @app.get("/health")
 async def health_check():
