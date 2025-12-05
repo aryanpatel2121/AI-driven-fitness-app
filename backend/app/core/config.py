@@ -19,15 +19,18 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = []
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    def split_cors(cls, v):
+    def cors_preprocess(cls, v):
         """
-        Accepts:
-        BACKEND_CORS_ORIGINS="https://a.com,https://b.com"
+        Allows both:
+        BACKEND_CORS_ORIGINS="https://site1.com,https://site2.com"
+        BACKEND_CORS_ORIGINS=["https://site1.com", "https://site2.com"]
         """
+        if not v:
+            return []
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
-    
+
     # ML Models
     MODEL_PATH: str = "./app/ml/models/"
     
