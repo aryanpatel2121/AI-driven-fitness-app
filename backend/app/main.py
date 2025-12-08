@@ -5,8 +5,7 @@ from app.core.config import settings
 from app.api.routes import auth, nutrition, workouts, analytics, ml_predictions as ml, prediction
 
 # Import SQLAlchemy models + engine
-from app.db.base import Base
-from app.db.database import engine
+from app.core.database import Base, engine
 
 
 app = FastAPI(
