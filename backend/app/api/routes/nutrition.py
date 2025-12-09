@@ -14,12 +14,27 @@ def get_current_user_id(token: str = Depends(oauth2_scheme), db: Session = Depen
     """Get current user ID from token"""
     payload = decode_access_token(token)
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid or expired token. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     
     username = payload.get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token format. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
     user = db.query(User).filter(User.username == username).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"User account not found. Please register or log in again.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     
     return user.id
 
