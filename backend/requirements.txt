@@ -27,3 +27,6 @@ joblib
 
 # HTTP Client
 httpx
+
+# AI/ML Services
+google-generativeai
