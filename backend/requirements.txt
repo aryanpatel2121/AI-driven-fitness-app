@@ -5,6 +5,7 @@ python-multipart
 
 # Database
 sqlalchemy
+psycopg2-binary  # PostgreSQL adapter for Python
 
 # Authentication & Security
 python-jose
