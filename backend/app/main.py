@@ -63,11 +63,12 @@ def parse_origins(value) -> List[str]:
 
 
 _origins = parse_origins(settings.BACKEND_CORS_ORIGINS)
+logger.info(f"Raw BACKEND_CORS_ORIGINS from settings: {settings.BACKEND_CORS_ORIGINS!r}")
 logger.info(f"Parsed CORS origins = {_origins!r}")
 
-# If you want to quickly debug CORS, you can temporarily enable ["*"] here,
-# but do NOT leave allow_origins=["*"] with allow_credentials=True in production.
+# CORS Middleware Configuration
 if _origins:
+    logger.info(f"Adding CORS middleware with origins: {_origins}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origins,
@@ -77,8 +78,17 @@ if _origins:
     )
 else:
     logger.warning(
-        "No CORS origins configured (BACKEND_CORS_ORIGINS is empty). "
-        "Requests from browsers may be blocked by CORS."
+        "⚠️ No CORS origins configured (BACKEND_CORS_ORIGINS is empty). "
+        "Temporarily allowing all origins for debugging. "
+        "CONFIGURE BACKEND_CORS_ORIGINS in production!"
+    )
+    # Temporary: Allow all origins for debugging
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,  # Can't use credentials with allow_origins=["*"]
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
 
