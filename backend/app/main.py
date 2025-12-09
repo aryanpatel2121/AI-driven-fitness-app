@@ -70,7 +70,7 @@ logger.info(f"Parsed CORS origins = {_origins!r}")
 if _origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
+        allow_origins=_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
