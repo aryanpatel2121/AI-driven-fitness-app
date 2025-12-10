@@ -18,11 +18,11 @@ pydantic-settings
 email-validator
 
 # Analytics & Data Processing
-pandas
-numpy
+pandas>=2.0.0
+numpy>=1.26.0,<2.0.0
 
 # Machine Learning
-scikit-learn
+scikit-learn>=1.5.0
 joblib
 
 # HTTP Client
