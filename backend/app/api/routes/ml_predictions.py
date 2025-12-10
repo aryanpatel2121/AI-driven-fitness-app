@@ -1,43 +1,41 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
 import pandas as pd
-from app.core.database import get_db
-from app.models.models import Workout, User
 from app.api.routes.auth import oauth2_scheme
 from app.core.security import decode_access_token
+from app.services.firestore_service import firestore_service
 
 router = APIRouter()
 
-def get_current_user_id(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> int:
+def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     """Get current user ID from token"""
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     
     username = payload.get("sub")
-    user = db.query(User).filter(User.username == username).first()
+    user = firestore_service.get_user_by_username(username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return user.id
+    return user["id"]
 
 @router.get("/predict-performance")
 async def predict_workout_performance(
     workout_type: str = "strength",
     days_ahead: int = 7,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Predict future workout performance using Linear Regression"""
     # Get historical workout data
-    workouts = db.query(Workout).filter(
-        Workout.user_id == user_id,
-        Workout.workout_type == workout_type
-    ).order_by(Workout.created_at).all()
+    all_workouts = firestore_service.get_user_workouts(user_id, limit=1000)
+    workouts = [
+        w for w in all_workouts 
+        if w.get("workout_type") == workout_type
+    ]
+    workouts.sort(key=lambda x: x.get("created_at", datetime.min))
     
     if len(workouts) < 5:
         return {
@@ -48,9 +46,9 @@ async def predict_workout_performance(
     
     # Prepare data
     df = pd.DataFrame([{
-        'date': w.created_at,
-        'duration': w.duration or 0,
-        'calories_burned': w.calories_burned or 0
+        'date': w["created_at"],
+        'duration': w.get("duration", 0) or 0,
+        'calories_burned': w.get("calories_burned", 0) or 0
     } for w in workouts])
     
     # Create day numbers for regression
@@ -96,18 +94,15 @@ async def predict_workout_performance(
 
 @router.get("/recommend-goals")
 async def recommend_goals(
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Recommend fitness goals based on user's historical data"""
-    user = db.query(User).filter(User.id == user_id).first()
+    user = firestore_service.get_user_by_id(user_id)
     
     # Get last 30 days of workouts
     start_date = datetime.utcnow() - timedelta(days=30)
-    workouts = db.query(Workout).filter(
-        Workout.user_id == user_id,
-        Workout.created_at >= start_date
-    ).all()
+    all_workouts = firestore_service.get_user_workouts(user_id, limit=1000)
+    workouts = [w for w in all_workouts if w.get("created_at") and w["created_at"] >= start_date]
     
     if not workouts:
         return {
@@ -116,9 +111,9 @@ async def recommend_goals(
         }
     
     df = pd.DataFrame([{
-        'duration': w.duration or 0,
-        'calories_burned': w.calories_burned or 0,
-        'workout_type': w.workout_type
+        'duration': w.get("duration", 0) or 0,
+        'calories_burned': w.get("calories_burned", 0) or 0,
+        'workout_type': w.get("workout_type", "unknown")
     } for w in workouts])
     
     # Calculate statistics
@@ -168,21 +163,20 @@ async def recommend_goals(
 
 @router.get("/workout-insights")
 async def get_workout_insights(
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get ML-powered insights about workout patterns"""
-    workouts = db.query(Workout).filter(Workout.user_id == user_id).all()
+    workouts = firestore_service.get_user_workouts(user_id, limit=10000)
     
     if len(workouts) < 3:
         return {"message": "Need more workout data for insights"}
     
     df = pd.DataFrame([{
-        'date': w.created_at,
-        'duration': w.duration or 0,
-        'calories': w.calories_burned or 0,
-        'type': w.workout_type,
-        'day_of_week': w.created_at.strftime('%A')
+        'date': w["created_at"],
+        'duration': w.get("duration", 0) or 0,
+        'calories': w.get("calories_burned", 0) or 0,
+        'type': w.get("workout_type", "unknown"),
+        'day_of_week': w["created_at"].strftime('%A') if isinstance(w["created_at"], datetime) else "Unknown"
     } for w in workouts])
     
     insights = []

@@ -4,8 +4,7 @@ uvicorn
 python-multipart
 
 # Database
-sqlalchemy
-psycopg2-binary  # PostgreSQL adapter for Python
+firebase-admin
 
 # Authentication & Security
 python-jose

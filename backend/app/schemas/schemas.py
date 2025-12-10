@@ -23,7 +23,7 @@ class UserUpdate(BaseModel):
     gender: Optional[str] = None
 
 class UserResponse(UserBase):
-    id: int
+    id: str
     created_at: datetime
     is_active: bool
     
@@ -46,8 +46,8 @@ class ExerciseCreate(ExerciseBase):
     pass
 
 class ExerciseResponse(ExerciseBase):
-    id: int
-    workout_id: int
+    id: str
+    workout_id: str
     created_at: datetime
     
     class Config:
@@ -65,8 +65,8 @@ class WorkoutCreate(WorkoutBase):
     exercises: List[ExerciseCreate] = []
 
 class WorkoutResponse(WorkoutBase):
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     log_date: datetime
     created_at: datetime
     exercises: List[ExerciseResponse] = []
@@ -88,8 +88,8 @@ class NutritionLogCreate(NutritionLogBase):
     log_date: Optional[datetime] = None
 
 class NutritionLogResponse(NutritionLogBase):
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     log_date: datetime
     created_at: datetime
     
@@ -107,8 +107,8 @@ class GoalCreate(GoalBase):
     pass
 
 class GoalResponse(GoalBase):
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     is_achieved: bool
     created_at: datetime
     

@@ -8,9 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes import auth, nutrition, workouts, analytics, ml_predictions as ml, prediction
-
-# Import SQLAlchemy models + engine
-from app.core.database import Base, engine
+from app.core.firebase_config import initialize_firebase
 
 
 # ----------------- Logging -----------------
@@ -27,14 +25,17 @@ app = FastAPI(
 )
 
 
-# -------------- CREATE ALL TABLES (IMPORTANT) -------------------
-# This fixes: sqlite3.OperationalError: no such table: users (only for SQLite/dev)
-try:
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created/checked successfully.")
-except Exception as exc:
-    logger.exception("Error creating database tables: %s", exc)
-# ---------------------------------------------------------------
+# -------------- INITIALIZE FIREBASE -------------------
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Firebase on application startup"""
+    try:
+        initialize_firebase()
+        logger.info("Firebase initialized successfully")
+    except Exception as exc:
+        logger.exception("Error initializing Firebase: %s", exc)
+        raise
+# -------------------------------------------------------
 
 
 # ------------- CORS helpers & middleware --------------

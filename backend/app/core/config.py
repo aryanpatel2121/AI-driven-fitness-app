@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional, Union
 from pydantic import field_validator
 
 class Settings(BaseSettings):
@@ -7,8 +7,8 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "Fitness Tracker API"
     
-    # Database
-    DATABASE_URL: str
+    # Firebase
+    FIREBASE_CREDENTIALS_PATH: Optional[str] = None
     
     # Security
     SECRET_KEY: str
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # CORS - Make it optional with a sensible default
-    BACKEND_CORS_ORIGINS: List[str] | str = []
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = []
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     def cors_preprocess(cls, v):
@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     MODEL_PATH: str = "./app/ml/models/"
     
     # AI
-    GOOGLE_API_KEY: str | None = None
-    CALORIENINJAS_API_KEY: str | None = None
+    GOOGLE_API_KEY: Optional[str] = None
+    CALORIENINJAS_API_KEY: Optional[str] = None
     
     class Config:
         env_file = ".env"

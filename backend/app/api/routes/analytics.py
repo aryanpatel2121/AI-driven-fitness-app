@@ -1,55 +1,48 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import pandas as pd
-from app.core.database import get_db
-from app.models.models import Workout, NutritionLog, User
 from app.api.routes.auth import oauth2_scheme
 from app.core.security import decode_access_token
+from app.services.firestore_service import firestore_service
 
 router = APIRouter()
 
-def get_current_user_id(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> int:
+def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     """Get current user ID from token"""
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     
     username = payload.get("sub")
-    user = db.query(User).filter(User.username == username).first()
+    user = firestore_service.get_user_by_username(username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return user.id
+    return user["id"]
 
 @router.get("/progress")
 async def get_progress_analytics(
     days: int = 30,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get workout and nutrition progress analytics using Pandas"""
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Get workouts
-    workouts = db.query(Workout).filter(
-        Workout.user_id == user_id,
-        Workout.created_at >= start_date
-    ).all()
+    all_workouts = firestore_service.get_user_workouts(user_id, limit=1000)
+    workouts = [w for w in all_workouts if w.get("created_at") and w["created_at"] >= start_date]
     
     # Get nutrition logs
-    nutrition_logs = db.query(NutritionLog).filter(
-        NutritionLog.user_id == user_id,
-        NutritionLog.created_at >= start_date
-    ).all()
+    all_nutrition = firestore_service.get_user_nutrition_logs(user_id, limit=1000)
+    nutrition_logs = [n for n in all_nutrition if n.get("created_at") and n["created_at"] >= start_date]
     
     # Convert to DataFrames for analysis
     if workouts:
         workout_df = pd.DataFrame([{
-            'date': w.created_at.date(),
-            'duration': w.duration or 0,
-            'calories_burned': w.calories_burned or 0,
-            'workout_type': w.workout_type
+            'date': w["created_at"].date() if isinstance(w["created_at"], datetime) else w["created_at"],
+            'duration': w.get("duration", 0) or 0,
+            'calories_burned': w.get("calories_burned", 0) or 0,
+            'workout_type': w.get("workout_type", "unknown")
         } for w in workouts])
         
         # Group by date
@@ -68,11 +61,11 @@ async def get_progress_analytics(
     
     if nutrition_logs:
         nutrition_df = pd.DataFrame([{
-            'date': n.created_at.date(),
-            'calories': n.calories,
-            'protein': n.protein or 0,
-            'carbs': n.carbs or 0,
-            'fats': n.fats or 0
+            'date': n["created_at"].date() if isinstance(n["created_at"], datetime) else n["created_at"],
+            'calories': n.get("calories", 0),
+            'protein': n.get("protein", 0) or 0,
+            'carbs': n.get("carbs", 0) or 0,
+            'fats': n.get("fats", 0) or 0
         } for n in nutrition_logs])
         
         # Group by date
@@ -113,25 +106,22 @@ async def get_progress_analytics(
 async def get_trends(
     metric: str = "calories_burned",
     days: int = 30,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get trend analysis for specific metrics"""
     start_date = datetime.utcnow() - timedelta(days=days)
     
     if metric in ["calories_burned", "duration"]:
         # Workout metrics
-        workouts = db.query(Workout).filter(
-            Workout.user_id == user_id,
-            Workout.created_at >= start_date
-        ).all()
+        all_workouts = firestore_service.get_user_workouts(user_id, limit=1000)
+        workouts = [w for w in all_workouts if w.get("created_at") and w["created_at"] >= start_date]
         
         if not workouts:
             return {"trend": "no_data", "data": []}
         
         df = pd.DataFrame([{
-            'date': w.created_at.date(),
-            'value': getattr(w, metric) or 0
+            'date': w["created_at"].date() if isinstance(w["created_at"], datetime) else w["created_at"],
+            'value': w.get(metric, 0) or 0
         } for w in workouts])
         
         daily_data = df.groupby('date')['value'].sum().reset_index()
@@ -154,26 +144,29 @@ async def get_trends(
 
 @router.get("/statistics")
 async def get_statistics(
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get overall user statistics"""
-    user = db.query(User).filter(User.id == user_id).first()
+    user = firestore_service.get_user_by_id(user_id)
     
-    total_workouts = db.query(Workout).filter(Workout.user_id == user_id).count()
-    total_nutrition_logs = db.query(NutritionLog).filter(NutritionLog.user_id == user_id).count()
+    # Get all workouts and nutrition logs
+    all_workouts = firestore_service.get_user_workouts(user_id, limit=10000)
+    all_nutrition = firestore_service.get_user_nutrition_logs(user_id, limit=10000)
+    
+    total_workouts = len(all_workouts)
+    total_nutrition_logs = len(all_nutrition)
     
     # Last 7 days activity
     last_week = datetime.utcnow() - timedelta(days=7)
-    recent_workouts = db.query(Workout).filter(
-        Workout.user_id == user_id,
-        Workout.created_at >= last_week
-    ).count()
+    recent_workouts = len([
+        w for w in all_workouts 
+        if w.get("created_at") and w["created_at"] >= last_week
+    ])
     
     return {
         "user_info": {
-            "username": user.username,
-            "member_since": user.created_at.date()
+            "username": user.get("username"),
+            "member_since": user.get("created_at").date() if user.get("created_at") else None
         },
         "totals": {
             "workouts": total_workouts,

@@ -1,29 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
 from datetime import timedelta
-from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token
-from app.models.models import User
 from app.schemas.schemas import UserCreate, UserResponse, Token, UserUpdate
 from app.core.config import settings
+from app.services.firestore_service import firestore_service
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate, db: Session = Depends(get_db)):
+async def register(user: UserCreate):
     """Register a new user"""
-    # Check if user exists
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
+    # Check if user exists by email
+    existing_user = firestore_service.get_user_by_email(user.email)
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
     
-    db_user = db.query(User).filter(User.username == user.username).first()
-    if db_user:
+    # Check if username is taken
+    existing_user = firestore_service.get_user_by_username(user.username)
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already taken"
@@ -31,28 +30,30 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     
     # Create new user
     hashed_password = get_password_hash(user.password)
-    db_user = User(
-        email=user.email,
-        username=user.username,
-        hashed_password=hashed_password,
-        full_name=user.full_name,
-        age=user.age,
-        weight=user.weight,
-        height=user.height,
-        gender=user.gender
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    user_data = {
+        "email": user.email,
+        "username": user.username,
+        "hashed_password": hashed_password,
+        "full_name": user.full_name,
+        "age": user.age,
+        "weight": user.weight,
+        "height": user.height,
+        "gender": user.gender
+    }
     
-    return db_user
+    user_id = firestore_service.create_user(user_data)
+    
+    # Get the created user to return
+    created_user = firestore_service.get_user_by_id(user_id)
+    
+    return created_user
 
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Login user and return access token"""
-    user = db.query(User).filter(User.username == form_data.username).first()
+    user = firestore_service.get_user_by_username(form_data.username)
     
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -61,13 +62,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"sub": user["username"]}, expires_delta=access_token_expires
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(token: str = Depends(oauth2_scheme)):
     """Get current authenticated user"""
     from app.core.security import decode_access_token
     
@@ -80,7 +81,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         )
     
     username: str = payload.get("sub")
-    user = db.query(User).filter(User.username == username).first()
+    user = firestore_service.get_user_by_username(username)
     
     if user is None:
         raise HTTPException(
@@ -93,8 +94,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 @router.put("/me", response_model=UserResponse)
 async def update_current_user(
     user_update: UserUpdate,
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    token: str = Depends(oauth2_scheme)
 ):
     """Update current authenticated user profile"""
     from app.core.security import decode_access_token
@@ -108,7 +108,7 @@ async def update_current_user(
         )
     
     username: str = payload.get("sub")
-    user = db.query(User).filter(User.username == username).first()
+    user = firestore_service.get_user_by_username(username)
     
     if user is None:
         raise HTTPException(
@@ -116,19 +116,24 @@ async def update_current_user(
             detail="User not found"
         )
     
-    # Update user fields
+    # Prepare update data (only include non-None values)
+    update_data = {}
     if user_update.full_name is not None:
-        user.full_name = user_update.full_name
+        update_data["full_name"] = user_update.full_name
     if user_update.age is not None:
-        user.age = user_update.age
+        update_data["age"] = user_update.age
     if user_update.weight is not None:
-        user.weight = user_update.weight
+        update_data["weight"] = user_update.weight
     if user_update.height is not None:
-        user.height = user_update.height
+        update_data["height"] = user_update.height
     if user_update.gender is not None:
-        user.gender = user_update.gender
+        update_data["gender"] = user_update.gender
     
-    db.commit()
-    db.refresh(user)
+    # Update user in Firestore
+    if update_data:
+        firestore_service.update_user(user["id"], update_data)
     
-    return user
+    # Get updated user
+    updated_user = firestore_service.get_user_by_id(user["id"])
+    
+    return updated_user

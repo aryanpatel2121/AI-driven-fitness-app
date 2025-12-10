@@ -1,16 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
-from app.core.database import get_db
-from app.models.models import NutritionLog, User
 from app.schemas.schemas import NutritionLogCreate, NutritionLogResponse
 from app.api.routes.auth import oauth2_scheme
 from app.core.security import decode_access_token
+from app.services.firestore_service import firestore_service
 
 router = APIRouter()
 
-def get_current_user_id(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> int:
+def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     """Get current user ID from token"""
     payload = decode_access_token(token)
     if payload is None:
@@ -28,7 +26,7 @@ def get_current_user_id(token: str = Depends(oauth2_scheme), db: Session = Depen
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    user = db.query(User).filter(User.username == username).first()
+    user = firestore_service.get_user_by_username(username)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -36,55 +34,57 @@ def get_current_user_id(token: str = Depends(oauth2_scheme), db: Session = Depen
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    return user.id
+    return user["id"]
 
 @router.post("", response_model=NutritionLogResponse, status_code=status.HTTP_201_CREATED)
 async def create_nutrition_log(
     nutrition: NutritionLogCreate,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Create a new nutrition log entry"""
-    db_nutrition = NutritionLog(
-        user_id=user_id,
-        meal_type=nutrition.meal_type,
-        food_name=nutrition.food_name,
-        calories=nutrition.calories,
-        protein=nutrition.protein,
-        carbs=nutrition.carbs,
-        fats=nutrition.fats,
-        serving_size=nutrition.serving_size,
-        log_date=nutrition.log_date or datetime.utcnow()
-    )
-    db.add(db_nutrition)
-    db.commit()
-    db.refresh(db_nutrition)
+    nutrition_data = {
+        "meal_type": nutrition.meal_type,
+        "food_name": nutrition.food_name,
+        "calories": nutrition.calories,
+        "protein": nutrition.protein,
+        "carbs": nutrition.carbs,
+        "fats": nutrition.fats,
+        "serving_size": nutrition.serving_size,
+        "log_date": nutrition.log_date or datetime.utcnow()
+    }
     
-    return db_nutrition
+    log_id = firestore_service.create_nutrition_log(user_id, nutrition_data)
+    created_log = firestore_service.get_nutrition_log_by_id(user_id, log_id)
+    
+    return created_log
 
 @router.get("", response_model=List[NutritionLogResponse])
 async def get_nutrition_logs(
     skip: int = 0,
     limit: int = 100,
     days: int = 7,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get nutrition logs for current user (default: last 7 days)"""
+    logs = firestore_service.get_user_nutrition_logs(user_id, limit=limit)
+    
+    # Filter by date range (last N days)
     start_date = datetime.utcnow() - timedelta(days=days)
+    filtered_logs = [
+        log for log in logs 
+        if log.get("log_date") and log["log_date"] >= start_date
+    ]
     
-    logs = db.query(NutritionLog).filter(
-        NutritionLog.user_id == user_id,
-        NutritionLog.log_date >= start_date
-    ).order_by(NutritionLog.log_date.desc()).offset(skip).limit(limit).all()
+    # Apply skip if needed
+    if skip > 0:
+        filtered_logs = filtered_logs[skip:]
     
-    return logs
+    return filtered_logs
 
 @router.get("/daily-summary")
 async def get_daily_summary(
     date: str = None,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get daily nutrition summary"""
     if date:
@@ -95,16 +95,17 @@ async def get_daily_summary(
     start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = start_of_day + timedelta(days=1)
     
-    logs = db.query(NutritionLog).filter(
-        NutritionLog.user_id == user_id,
-        NutritionLog.log_date >= start_of_day,
-        NutritionLog.log_date < end_of_day
-    ).all()
+    # Get all nutrition logs and filter by date
+    all_logs = firestore_service.get_user_nutrition_logs(user_id, limit=1000)
+    logs = [
+        log for log in all_logs
+        if log.get("log_date") and start_of_day <= log["log_date"] < end_of_day
+    ]
     
-    total_calories = sum(log.calories for log in logs)
-    total_protein = sum(log.protein or 0 for log in logs)
-    total_carbs = sum(log.carbs or 0 for log in logs)
-    total_fats = sum(log.fats or 0 for log in logs)
+    total_calories = sum(log.get("calories", 0) for log in logs)
+    total_protein = sum(log.get("protein", 0) or 0 for log in logs)
+    total_carbs = sum(log.get("carbs", 0) or 0 for log in logs)
+    total_fats = sum(log.get("fats", 0) or 0 for log in logs)
     
     return {
         "date": target_date.date(),
@@ -117,20 +118,15 @@ async def get_daily_summary(
 
 @router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_nutrition_log(
-    log_id: int,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    log_id: str,
+    user_id: str = Depends(get_current_user_id)
 ):
     """Delete a nutrition log"""
-    log = db.query(NutritionLog).filter(
-        NutritionLog.id == log_id,
-        NutritionLog.user_id == user_id
-    ).first()
+    log = firestore_service.get_nutrition_log_by_id(user_id, log_id)
     
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nutrition log not found")
     
-    db.delete(log)
-    db.commit()
+    firestore_service.delete_nutrition_log(user_id, log_id)
     
     return None
